@@ -1,0 +1,364 @@
+#include<MsTimer2.h>
+#include<Servo.h>
+#define ENCODER_A1 2
+#define ENCODER_B1 5
+#define ENCODER_A2 3 //电机 2
+#define ENCODER_B2 4
+#define SERVO_PIN1 6
+#define SERVO_PIN2 7
+#define PWM1 8
+#define PWM2 9
+#define INL1 10
+#define INL2 11
+#define INR1 12
+#define INR2 13
+#define R4 A0 //右红外
+#define R3 A1
+#define R2 A2
+#define R1 A3
+#define M A4 //中红外
+#define L1 A5 //左红外
+#define L2 A6
+#define L3 A7
+#define L4 A8
+#define PERIOD 3
+#define KpL 15 
+#define TiL 40
+#define TdL 5
+#define KpR 15
+#define TiR 40
+#define TdR 5
+#define TrigPin 47//超声波传感器的引脚
+#define EchoPin 49
+
+Servo myservo1,myservo2;//1是轴，2是爪
+float target1=2.0,t1=0;
+float target2=2.0,t2=0;
+volatile long encoderVal1;
+float velocity1;
+volatile long encoderVal2;
+float velocity2;
+float T=PERIOD;
+float q0L = KpL * (1 + T / TiL + TdL / T);
+float q1L = -KpL * (1 + 2 * TdL / T);
+float q2L = KpL * TdL / T;
+float q0R = KpR * (1 + T / TiR + TdR / T);
+float q1R = -KpR * (1 + 2 * TdR / T);
+float q2R = KpR * TdR / T;
+float u1, ek11, ek12;
+float u2, ek21, ek22; 
+float V1=27.0;
+float V2=27.0;//初始速度
+float cm=2000;
+const int start1=55,start2=73;
+const int destination1=80,destination2=45;
+int delaytime=700;
+int a=0;
+int b=0;//确保只执行一次避障
+int c=0;//确保执行完再测距离
+int distance=15;//小车避障距离
+
+
+void common()
+{
+target1=target1*0.64+t1*0.36;
+target2=target2*0.64+t2*0.36;
+velocity1 = (encoderVal1 / 780.0) * 3.1415 * 2.0 * (1000 / PERIOD);
+encoderVal1 = 0;
+velocity2 = (encoderVal2 / 780.0) * 3.1415 * 2.0 * (1000 / PERIOD);
+encoderVal2 = 0;
+int output1 = pidController1(target1, velocity1);
+int output2 = pidController2(target2, velocity2);
+analogWrite(PWM1, abs(output1));
+analogWrite(PWM2, abs(output2));
+if(output1>0)
+{
+ digitalWrite(INL1,LOW);
+ digitalWrite(INL2,HIGH);
+}
+else
+{
+ digitalWrite(INL1,HIGH);
+ digitalWrite(INL2,LOW);
+}
+if (output2>0)
+{ 
+ digitalWrite(INR1,LOW);
+ digitalWrite(INR2,HIGH);
+}
+else
+{
+ digitalWrite(INR1,HIGH);
+ digitalWrite(INR2,LOW);
+}
+t1 = target1;
+t2 = target2;
+
+}
+void control(void)
+{
+// if(digitalRead(L1)==HIGH&&digitalRead(R1)==HIGH&&digitalRead(L2)==HIGH&&digitalRead(R2)==HIGH&&digitalRead(L3)==HIGH&&digitalRead(R3)==HIGH&&digitalRead(L4)==HIGH&&digitalRead(R4)==HIGH)
+// {
+// a=1;
+// }
+if(a==0)
+{
+if(digitalRead(M)==HIGH)
+{
+ target1=V1;
+ target2=V2;
+}
+if(digitalRead(L1)==HIGH)
+{
+ target1=V1*0.9;
+ target2=V2*0.6;
+}
+if(digitalRead(R1)==HIGH)
+{
+ target1=V1*0.6;
+ target2=V2*0.9;
+}
+if(digitalRead(L2)==HIGH)
+{
+ target1=V1*0.8;
+ target2=V2*0.38;
+}
+if(digitalRead(R2)==HIGH)
+{
+ target1=V1*0.38;
+ target2=V2*0.8;
+}
+if(digitalRead(R3)==HIGH)
+{
+ target1=V1*0.18;
+ target2=V2*0.7;
+}
+if(digitalRead(L3)==HIGH)
+{
+ target1=V1*0.7;
+ target2=V2*0.18;
+}
+if(digitalRead(L4)==HIGH&&digitalRead(R4)==LOW)
+{
+ target1=V1*0.64;
+ target2=V2*-0.12;
+}
+if(digitalRead(R4)==HIGH&&digitalRead(L4)==LOW)
+{
+ target1=V1*-0.12;
+ target2=V2*0.64;
+}
+
+common();
+}
+cm=2000;
+}
+
+void getEncoder1(void)
+{ 
+if(digitalRead(ENCODER_A1) == LOW)
+{
+if(digitalRead(ENCODER_B1) == LOW)
+{ 
+encoderVal1--;
+}
+else
+{
+encoderVal1++;
+}
+}
+else{
+if (digitalRead(ENCODER_B1) == LOW)
+{ 
+encoderVal1++;
+}
+else
+{
+encoderVal1--;
+}
+}
+}
+
+void getEncoder2(void){ 
+if(digitalRead(ENCODER_A2) == LOW)
+{
+if (digitalRead(ENCODER_B2) == LOW)
+{ 
+encoderVal2--;
+}
+else
+{
+encoderVal2++;
+}
+}
+else
+{
+if(digitalRead(ENCODER_B2) == LOW)
+{ 
+encoderVal2++;
+}
+else
+{
+encoderVal2--;
+}
+}
+}
+int pidController1(float targetVelocity, float currentVelocity)
+{
+float ek10;
+ek10 = targetVelocity - currentVelocity;
+u1 = u1 + q0R * ek10 + q1R * ek11 + q2R * ek12;
+if (u1 > 255)
+{
+u1 = 255;
+}
+if (u1 < -255)
+{
+u1 = -255;
+}
+ek12 = ek11;
+ek11 = ek10;
+return (int)u1;
+}
+int pidController2(float targetVelocity, float currentVelocity)
+{
+float ek20;
+ek20 = targetVelocity - currentVelocity;
+u2 = u2 + q0L * ek20 + q1L * ek21 + q2L * ek22;
+if (u2 > 255)
+{
+u2 = 255;
+}
+if (u2 < -255)
+{
+u2 = -255;
+}
+ek22 = ek21;
+ek21 = ek20;
+return (int)u2;
+}
+
+void obstacle()//测量小车与障碍物之间距离的程序
+{
+ digitalWrite(TrigPin,LOW);
+ delayMicroseconds(2);
+ digitalWrite(TrigPin,HIGH);
+ delayMicroseconds(10);
+ digitalWrite(TrigPin,LOW);
+ cm = pulseIn(EchoPin, HIGH) / 58;
+}
+
+void setup() {
+TCCR1B=TCCR1B&B11111000|B00000001;
+pinMode(ENCODER_A1, INPUT);
+pinMode(ENCODER_B1, INPUT);
+pinMode(ENCODER_A2, INPUT);
+pinMode(ENCODER_B2, INPUT);
+attachInterrupt(0, getEncoder1, CHANGE);
+attachInterrupt(1, getEncoder2, CHANGE);
+Serial.begin(9600);
+pinMode(PWM1, OUTPUT);
+pinMode(PWM2, OUTPUT);
+pinMode(INL1,OUTPUT); 
+pinMode(INL2,OUTPUT);
+pinMode(INR1,OUTPUT); 
+pinMode(INR2,OUTPUT);
+pinMode(R1, INPUT);
+pinMode(R2, INPUT);
+pinMode(R3, INPUT);
+pinMode(R4, INPUT);
+pinMode(L1, INPUT);
+pinMode(L2, INPUT);
+pinMode(L3, INPUT);
+pinMode(L4, INPUT);
+pinMode(M, INPUT);
+pinMode(TrigPin, OUTPUT);
+pinMode(EchoPin, INPUT);
+
+MsTimer2::set(PERIOD,control);
+myservo1.attach(SERVO_PIN1);
+myservo2.attach(SERVO_PIN2);
+delay(1000);
+MsTimer2::start();
+}
+
+void loop() {
+obstacle();
+if (cm < 18&&b==0)
+{
+MsTimer2::stop();
+digitalWrite(INR2, LOW);  //Stop   
+digitalWrite(INR1, LOW);
+digitalWrite(INL2, LOW);      
+digitalWrite(INL1, LOW);
+delay(500);
+analogWrite(PWM1,150);
+digitalWrite(INR2, LOW); //movebackword         
+digitalWrite(INR1,HIGH);
+analogWrite(PWM2,254);
+digitalWrite(INL2, LOW);      
+digitalWrite(INL1, HIGH);
+delay(160);
+digitalWrite(INR2, LOW);  //Stop   
+digitalWrite(INR1, LOW);
+digitalWrite(INL2, LOW);      
+digitalWrite(INL1, LOW);
+delay(500);
+analogWrite(PWM1,254);
+digitalWrite(INR2, HIGH); //leftmove     
+digitalWrite(INR1,LOW);
+analogWrite(PWM2,80);
+digitalWrite(INL2, HIGH);      
+digitalWrite(INL1, LOW);
+delay(350);
+digitalWrite(INR2, LOW);  //Stop   
+digitalWrite(INR1, LOW);
+digitalWrite(INL2, LOW);      
+digitalWrite(INL1, LOW);
+delay(500);
+digitalWrite(PWM2,150);
+digitalWrite(INL1,LOW);
+digitalWrite(INL2,HIGH);  
+analogWrite(PWM1,150);
+digitalWrite(INR1,LOW);
+digitalWrite(INR2,HIGH);
+delay(250); 
+digitalWrite(PWM2,150); 
+digitalWrite(INL1,LOW);
+digitalWrite(INL2,HIGH);  
+analogWrite(PWM1,100);
+digitalWrite(INR1,LOW);
+digitalWrite(INR2,HIGH);
+delay(380);
+digitalWrite(PWM2,50);
+digitalWrite(INL1,LOW);
+digitalWrite(INL2,HIGH);  
+analogWrite(PWM1,150);
+digitalWrite(INR1,LOW);
+digitalWrite(INR2,HIGH);
+delay(100);
+// analogWrite(PWM1,150);
+// digitalWrite(INR2, HIGH);       
+// digitalWrite(INR1, LOW);  
+// analogWrite(PWM2,150);
+// digitalWrite(INL2, HIGH); 
+// digitalWrite(INL1, LOW);       
+// delay(600);
+// analogWrite(PWM1,150);
+// digitalWrite(INR2, HIGH);       
+// digitalWrite(INR1, LOW);  
+// analogWrite(PWM2,150);
+// digitalWrite(INL1, LOW);       
+// digitalWrite(INL2, HIGH);  
+// delay(500);
+b=1;
+MsTimer2::start();
+}
+if(a==1)
+{
+analogWrite(PWM1, 0);
+analogWrite(PWM2, 0);
+}
+}
+
+
